@@ -27,7 +27,7 @@ const breakfastAfterWakeUpMinutes = 45; // time after wake-up for breakfast
 const dinnerBeforeSleepMinutes = 3 * 60; // time before sleep for dinner
 const workingHours = 8; // total working hours per day
 const wakeUpLimits = {
-    earliest: null,
+    earliest: '5:30:00',
     latest: '6:30:00',
 } as {
     earliest: string | null;
