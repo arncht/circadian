@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { subMinutes, addDays, addMinutes } from 'date-fns';
+import { addMinutes, subMinutes } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { createEvents, type EventAttributes } from 'ics';
 import SunCalc from 'suncalc';
@@ -10,7 +10,7 @@ const latitude = 48.23489831873396;
 const longitude = 16.32402058462267;
 const timeZone = 'Europe/Vienna';
 
-const date = new Date('2025-06-15'); // local date and time
+const date = new Date(); // local date and time
 const times = SunCalc.getTimes(date, latitude, longitude);
 const fmt = 'yyyy-MM-dd HH:mm';
 
@@ -26,13 +26,13 @@ const windDownBeforeSleepMinutes = 60; // time to wind down before sleep
 const breakfastAfterWakeUpMinutes = 45; // time after wake-up for breakfast
 const dinnerBeforeSleepMinutes = 3 * 60; // time before sleep for dinner
 const workingHours = 8; // total working hours per day
-// const wakeUpLimits = {
-//     earliest: null,
-//     latest: '06:00:00',
-// } as {
-//     earliest: string | null;
-//     latest: string | null;
-// };
+const wakeUpLimits = {
+    earliest: null,
+    latest: '6:30:00',
+} as {
+    earliest: string | null;
+    latest: string | null;
+};
 
 const icsEvents: EventAttributes[] = [];
 
@@ -46,9 +46,41 @@ const requiredSleepHours = calculateSleepDuration({
 const requiredSleepMinutes = requiredSleepHours * 60;
 
 // Calculate sleep/wake times: try to wake at dawn, but if that pushes sleep before dusk, use dusk instead
-const tentativeSleepStart = addDays(subMinutes(times.dawn, requiredSleepMinutes), 1);
+let tentativeSleepStart = addMinutes(subMinutes(times.dawn, requiredSleepMinutes), 24 * 60);
+let wakeUpTime = times.dawn;
+
+// Apply wake-up time limits if specified
+if (wakeUpLimits.latest) {
+    const parts = wakeUpLimits.latest.split(':').map(Number);
+    const hours = parts[0]!;
+    const minutes = parts[1]!;
+    const seconds = parts[2] ?? 0;
+    const latestWakeUp = new Date(date);
+
+    latestWakeUp.setHours(hours, minutes, seconds, 0);
+
+    if (wakeUpTime > latestWakeUp) {
+        wakeUpTime = latestWakeUp;
+        tentativeSleepStart = addMinutes(subMinutes(wakeUpTime, requiredSleepMinutes), 24 * 60);
+    }
+}
+
+if (wakeUpLimits.earliest) {
+    const parts = wakeUpLimits.earliest.split(':').map(Number);
+    const hours = parts[0]!;
+    const minutes = parts[1]!;
+    const seconds = parts[2] ?? 0;
+    const earliestWakeUp = new Date(date);
+
+    earliestWakeUp.setHours(hours, minutes, seconds, 0);
+
+    if (wakeUpTime < earliestWakeUp) {
+        wakeUpTime = earliestWakeUp;
+        tentativeSleepStart = addMinutes(subMinutes(wakeUpTime, requiredSleepMinutes), 24 * 60);
+    }
+}
+
 const sleepStartTime = tentativeSleepStart < times.dusk ? times.dusk : tentativeSleepStart;
-const wakeUpTime = addMinutes(sleepStartTime, requiredSleepMinutes);
 const windDownTime = subMinutes(sleepStartTime, windDownBeforeSleepMinutes);
 
 const hours = Math.floor(requiredSleepHours);
