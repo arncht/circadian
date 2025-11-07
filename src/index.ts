@@ -10,7 +10,7 @@ const latitude = 48.23489831873396;
 const longitude = 16.32402058462267;
 const timeZone = 'Europe/Vienna';
 
-const date = new Date(); // local date and time
+const date = new Date('2025-06-15'); // local date and time
 const times = SunCalc.getTimes(date, latitude, longitude);
 const fmt = 'yyyy-MM-dd HH:mm';
 
@@ -26,6 +26,13 @@ const windDownBeforeSleepMinutes = 60; // time to wind down before sleep
 const breakfastAfterWakeUpMinutes = 45; // time after wake-up for breakfast
 const dinnerBeforeSleepMinutes = 3 * 60; // time before sleep for dinner
 const workingHours = 8; // total working hours per day
+// const wakeUpLimits = {
+//     earliest: null,
+//     latest: '06:00:00',
+// } as {
+//     earliest: string | null;
+//     latest: string | null;
+// };
 
 const icsEvents: EventAttributes[] = [];
 
@@ -36,9 +43,12 @@ const requiredSleepHours = calculateSleepDuration({
     longitude,
     badSleepMinutes,
 });
-const wakeUpTime = times.dawn;
 const requiredSleepMinutes = requiredSleepHours * 60;
-const sleepStartTime = addDays(subMinutes(wakeUpTime, requiredSleepMinutes), 1);
+
+// Calculate sleep/wake times: try to wake at dawn, but if that pushes sleep before dusk, use dusk instead
+const tentativeSleepStart = addDays(subMinutes(times.dawn, requiredSleepMinutes), 1);
+const sleepStartTime = tentativeSleepStart < times.dusk ? times.dusk : tentativeSleepStart;
+const wakeUpTime = addMinutes(sleepStartTime, requiredSleepMinutes);
 const windDownTime = subMinutes(sleepStartTime, windDownBeforeSleepMinutes);
 
 const hours = Math.floor(requiredSleepHours);
