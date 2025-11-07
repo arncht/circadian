@@ -1,5 +1,7 @@
+import fs from 'fs';
 import { subMinutes, addDays, addMinutes } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
+import { createEvents, type EventAttributes } from 'ics';
 import SunCalc from 'suncalc';
 import { calculateSleepDuration } from './sleepDuration.js';
 
@@ -19,23 +21,30 @@ console.log('Sunset:', formatInTimeZone(times.sunset, timeZone, fmt));
 console.log('Dusk (civil):', formatInTimeZone(times.dusk, timeZone, fmt));
 console.log('-----------------------------------');
 
-// sleeping
+const badSleepMinutes = parseInt(process.env.BAD_SLEEP_MINUTES || '0', 10); // extra time for bad sleep quality
+const windDownBeforeSleepMinutes = 60; // time to wind down before sleep
+const breakfastAfterWakeUpMinutes = 45; // time after wake-up for breakfast
+const dinnerBeforeSleepMinutes = 3 * 60; // time before sleep for dinner
+const workingHours = 8; // total working hours per day
 
+const icsEvents: EventAttributes[] = [];
+
+// sleeping
 const requiredSleepHours = calculateSleepDuration({
     date,
     latitude,
     longitude,
+    badSleepMinutes,
 });
 const wakeUpTime = times.dawn;
-const badSleepMinutes = 0; // extra time for bad sleep quality
-const requiredSleepMinutes = requiredSleepHours * 60 + badSleepMinutes;
+const requiredSleepMinutes = requiredSleepHours * 60;
 const sleepStartTime = addDays(subMinutes(wakeUpTime, requiredSleepMinutes), 1);
-const windDownBeforeSleepMinutes = 60;
 const windDownTime = subMinutes(sleepStartTime, windDownBeforeSleepMinutes);
 
 const hours = Math.floor(requiredSleepHours);
 const minutes = Math.round((requiredSleepHours - hours) * 60);
 
+if (badSleepMinutes) console.log('Bad sleep minutes compensation:', badSleepMinutes);
 console.log(`Required sleep today: ${hours} hours ${minutes} minutes`);
 console.log('Recommended wake-up time:', formatInTimeZone(wakeUpTime, timeZone, fmt));
 console.log('Winding down time before sleep:', formatInTimeZone(windDownTime, timeZone, fmt));
@@ -43,9 +52,7 @@ console.log('Recommended sleep start time:', formatInTimeZone(sleepStartTime, ti
 console.log('-----------------------------------');
 
 // eating
-const breakfastAfterWakeUpMinutes = 45;
 const breakfastTime = addMinutes(wakeUpTime, breakfastAfterWakeUpMinutes);
-const dinnerBeforeSleepMinutes = 3 * 60;
 const dinnerTime = subMinutes(sleepStartTime, dinnerBeforeSleepMinutes);
 const halfwayBetweenMeals = new Date((breakfastTime.getTime() + dinnerTime.getTime()) / 2);
 const lunchTime = new Date((times.solarNoon.getTime() + halfwayBetweenMeals.getTime()) / 2);
@@ -70,16 +77,15 @@ const powerNapTime = addMinutes(lunchTime, 30);
 const morningPeak = new Date((wakeUpTime.getTime() + powerNapTime.getTime()) / 2);
 const afternoonPeak = new Date((powerNapTime.getTime() + windDownTime.getTime()) / 2);
 
-console.log('Morning peak time:', formatInTimeZone(morningPeak, timeZone, fmt));
+console.log('Morning peak:', formatInTimeZone(morningPeak, timeZone, fmt));
 console.log('Power nap time:', formatInTimeZone(powerNapTime, timeZone, fmt));
-console.log('Afternoon peak time:', formatInTimeZone(afternoonPeak, timeZone, fmt));
+console.log('Afternoon peak:', formatInTimeZone(afternoonPeak, timeZone, fmt));
 console.log('-----------------------------------');
 
 // most efficient work windows
-const workingHours = 8;
 const morningHours = powerNapTime.getTime() - wakeUpTime.getTime();
 const afternoonHours = windDownTime.getTime() - powerNapTime.getTime();
-const workingMorningHours = 8 * (morningHours / (morningHours + afternoonHours));
+const workingMorningHours = workingHours * (morningHours / (morningHours + afternoonHours));
 const workingAfternoonHours = workingHours - workingMorningHours;
 const morningWorkStart = subMinutes(morningPeak, (workingMorningHours / 2) * 60);
 const morningWorkEnd = addMinutes(morningPeak, (workingMorningHours / 2) * 60);
@@ -98,4 +104,109 @@ console.log(
     formatInTimeZone(afternoonWorkStart, timeZone, fmt),
     '-',
     formatInTimeZone(afternoonWorkEnd, timeZone, fmt)
+);
+console.log('-----------------------------------');
+
+const morningPeakHourStart = subMinutes(morningPeak, 30);
+const afternoonPeakHourStart = subMinutes(afternoonPeak, 30);
+
+createEvents(
+    [
+        {
+            start: [
+                breakfastTime.getFullYear(),
+                breakfastTime.getMonth() + 1,
+                breakfastTime.getDate(),
+                breakfastTime.getHours(),
+                breakfastTime.getMinutes(),
+            ],
+            duration: { minutes: 30 },
+            title: 'Breakfast',
+        },
+        {
+            start: [
+                lunchTime.getFullYear(),
+                lunchTime.getMonth() + 1,
+                lunchTime.getDate(),
+                lunchTime.getHours(),
+                lunchTime.getMinutes(),
+            ],
+            duration: { minutes: 60 },
+            title: 'Lunch',
+            alarms: [
+                {
+                    action: 'display',
+                    trigger: { minutes: 30, before: true },
+                },
+            ],
+        },
+        {
+            start: [
+                dinnerTime.getFullYear(),
+                dinnerTime.getMonth() + 1,
+                dinnerTime.getDate(),
+                dinnerTime.getHours(),
+                dinnerTime.getMinutes(),
+            ],
+            duration: { minutes: 30 },
+            title: 'Dinner',
+            alarms: [
+                {
+                    action: 'display',
+                    trigger: { minutes: 30, before: true },
+                    description: 'Stop the work and relax!',
+                },
+            ],
+        },
+        {
+            start: [
+                windDownTime.getFullYear(),
+                windDownTime.getMonth() + 1,
+                windDownTime.getDate(),
+                windDownTime.getHours(),
+                windDownTime.getMinutes(),
+            ],
+            end: [
+                sleepStartTime.getFullYear(),
+                sleepStartTime.getMonth() + 1,
+                sleepStartTime.getDate(),
+                sleepStartTime.getHours(),
+                sleepStartTime.getMinutes(),
+            ],
+            title: 'Wind Down',
+        },
+        {
+            start: [
+                morningPeakHourStart.getFullYear(),
+                morningPeakHourStart.getMonth() + 1,
+                morningPeakHourStart.getDate(),
+                morningPeakHourStart.getHours(),
+                morningPeakHourStart.getMinutes(),
+            ],
+            duration: { minutes: 60 },
+            title: 'Morning peak hour',
+        },
+        {
+            start: [
+                afternoonPeakHourStart.getFullYear(),
+                afternoonPeakHourStart.getMonth() + 1,
+                afternoonPeakHourStart.getDate(),
+                afternoonPeakHourStart.getHours(),
+                afternoonPeakHourStart.getMinutes(),
+            ],
+            duration: { minutes: 60 },
+            title: 'Afternoon peak hour',
+        },
+    ],
+    (error, value) => {
+        if (error) {
+            console.error(error);
+
+            return;
+        }
+        const fileName = `exports/schedule-${formatInTimeZone(date, timeZone, 'yyyy-MM-dd')}.ics`;
+
+        fs.writeFileSync(fileName, value);
+        console.log(`✅ ${fileName} saved with`, icsEvents.length, 'events');
+    }
 );

@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "dev": "node --env-file=.env --watch --import tsx src/index.ts",
+        "prod": "node --env-file=.env --import tsx src/index.ts",
         "build": "tsc",
         "eslint": "eslint 'src/**/*.ts' --max-warnings=0",
         "eslint:fix": "eslint 'src/**/*.ts' --fix",
@@ -41,6 +42,7 @@
     "dependencies": {
         "date-fns": "^4.1.0",
         "date-fns-tz": "^3.2.0",
+        "ics": "^3.8.1",
         "suncalc": "^1.9.0"
     }
 }

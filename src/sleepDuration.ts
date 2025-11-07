@@ -4,6 +4,7 @@ type InputParams = {
     date: Date;
     latitude: number;
     longitude: number;
+    badSleepMinutes?: number; // optional parameter
 };
 
 type OutputParams = number; // required sleep duration in hours
@@ -12,7 +13,7 @@ const sleepLength = 8;
 const sleepSeasonalAdjustment = 0.5;
 
 function calculateSleepDuration(params: InputParams): OutputParams {
-    const { date, latitude, longitude } = params;
+    const { date, latitude, longitude, badSleepMinutes = 0 } = params;
 
     // Summer solstice (around June 21)
     const summerSolstice = new Date(date.getFullYear(), 5, 21);
@@ -42,7 +43,10 @@ function calculateSleepDuration(params: InputParams): OutputParams {
     // Inverse ratio: longer day = less sleep
     const sleepDuration = maxSleep - normalizedDayLength * (maxSleep - minSleep);
 
-    return sleepDuration;
+    // Add compensation for bad sleep (convert minutes to hours)
+    const compensationHours = badSleepMinutes / 60;
+
+    return sleepDuration + compensationHours;
 }
 
 export { calculateSleepDuration };
