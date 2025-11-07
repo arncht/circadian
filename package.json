@@ -25,6 +25,8 @@
     "description": "",
     "devDependencies": {
         "@eslint/js": "^9.36.0",
+        "@types/node": "^24.10.0",
+        "@types/suncalc": "^1.9.2",
         "@typescript-eslint/parser": "^8.46.1",
         "eslint": "^9.36.0",
         "eslint-config-prettier": "^10.1.8",
@@ -36,5 +38,9 @@
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.45.0"
     },
-    "dependencies": {}
+    "dependencies": {
+        "date-fns": "^4.1.0",
+        "date-fns-tz": "^3.2.0",
+        "suncalc": "^1.9.0"
+    }
 }
