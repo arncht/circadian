@@ -1,17 +1,40 @@
 import fs from 'fs';
-import { addMinutes, subMinutes } from 'date-fns';
+import { addDays, addMinutes, subMinutes } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { createEvents, type EventAttributes } from 'ics';
 import SunCalc from 'suncalc';
+import { dateFromTimeString } from './dateFromTimeString.js';
 import { calculateSleepDuration } from './sleepDuration.js';
 
-// Vienna coordinates – replace with your own
-const latitude = 48.23489831873396;
-const longitude = 16.32402058462267;
-const timeZone = 'Europe/Vienna';
+if (
+    !process.env.LATITUDE ||
+    !process.env.LONGITUDE ||
+    !process.env.TIME_ZONE ||
+    !process.env.CURRENT_WAKE_UP_TIME
+) {
+    console.error(
+        'Please set LATITUDE, LONGITUDE, TIME_ZONE, and CURRENT_WAKE_UP_TIME environment variables before running the script.'
+    );
+    process.exit(1);
+}
+
+const latitude = parseFloat(process.env.LATITUDE);
+const longitude = parseFloat(process.env.LONGITUDE);
+const timeZone = process.env.TIME_ZONE;
+
+const currentWakeupTime = process.env.CURRENT_WAKE_UP_TIME;
+const nextWakeupEarliestTime = process.env.NEXT_WAKE_UP_EARLIEST_TIME || null;
+const nextWakeupLatestTime = process.env.NEXT_WAKE_UP_LATEST_TIME || null;
+
+const badSleepMinutes = parseInt(process.env.BAD_SLEEP_MINUTES || '30');
+const windDownBeforeSleepMinutes = parseInt(process.env.WIND_DOWN_BEFORE_SLEEP_MINUTES || '60');
+const breakfastAfterWakeUpMinutes = parseInt(process.env.BREAKFAST_AFTER_WAKE_UP_MINUTES || '45');
+const dinnerBeforeSleepMinutes = parseInt(process.env.DINNER_BEFORE_SLEEP_MINUTES || '180');
+const workingHours = parseInt(process.env.WORKING_HOURS || '8');
 
 const date = new Date(); // local date and time
 const times = SunCalc.getTimes(date, latitude, longitude);
+const timesNextDay = SunCalc.getTimes(addDays(date, 1), latitude, longitude);
 const fmt = 'yyyy-MM-dd HH:mm';
 
 console.log('Dawn (civil):', formatInTimeZone(times.dawn, timeZone, fmt));
@@ -19,20 +42,10 @@ console.log('Sunrise:', formatInTimeZone(times.sunrise, timeZone, fmt));
 console.log('Solar noon:', formatInTimeZone(times.solarNoon, timeZone, fmt));
 console.log('Sunset:', formatInTimeZone(times.sunset, timeZone, fmt));
 console.log('Dusk (civil):', formatInTimeZone(times.dusk, timeZone, fmt));
+console.log('\nNext day:');
+console.log('Dawn (civil):', formatInTimeZone(timesNextDay.dawn, timeZone, fmt));
+console.log('Sunrise:', formatInTimeZone(timesNextDay.sunrise, timeZone, fmt));
 console.log('-----------------------------------');
-
-const badSleepMinutes = parseInt(process.env.BAD_SLEEP_MINUTES || '0', 10); // extra time for bad sleep quality
-const windDownBeforeSleepMinutes = 60; // time to wind down before sleep
-const breakfastAfterWakeUpMinutes = 45; // time after wake-up for breakfast
-const dinnerBeforeSleepMinutes = 3 * 60; // time before sleep for dinner
-const workingHours = 8; // total working hours per day
-const wakeUpLimits = {
-    earliest: '5:30:00',
-    latest: '6:30:00',
-} as {
-    earliest: string | null;
-    latest: string | null;
-};
 
 const icsEvents: EventAttributes[] = [];
 
@@ -45,52 +58,50 @@ const requiredSleepHours = calculateSleepDuration({
 });
 const requiredSleepMinutes = requiredSleepHours * 60;
 
-// Calculate sleep/wake times: try to wake at dawn, but if that pushes sleep before dusk, use dusk instead
-let tentativeSleepStart = addMinutes(subMinutes(times.dawn, requiredSleepMinutes), 24 * 60);
-let wakeUpTime = times.dawn;
+const wakeUpTime = dateFromTimeString({ date, timeString: currentWakeupTime });
+let nextWakeUpTime = timesNextDay.dawn;
+let sleepStartTime = subMinutes(nextWakeUpTime, requiredSleepMinutes);
 
-// Apply wake-up time limits if specified
-if (wakeUpLimits.latest) {
-    const parts = wakeUpLimits.latest.split(':').map(Number);
-    const hours = parts[0]!;
-    const minutes = parts[1]!;
-    const seconds = parts[2] ?? 0;
-    const latestWakeUp = new Date(date);
+if (sleepStartTime < times.dusk) {
+    sleepStartTime = times.dusk;
+    nextWakeUpTime = addMinutes(sleepStartTime, requiredSleepMinutes);
+}
 
-    latestWakeUp.setHours(hours, minutes, seconds, 0);
+if (nextWakeupEarliestTime) {
+    const earliestNextWakeUpTime = dateFromTimeString({
+        date: addDays(date, 1),
+        timeString: nextWakeupEarliestTime,
+    });
 
-    if (wakeUpTime > latestWakeUp) {
-        wakeUpTime = latestWakeUp;
-        tentativeSleepStart = addMinutes(subMinutes(wakeUpTime, requiredSleepMinutes), 24 * 60);
+    if (nextWakeUpTime < earliestNextWakeUpTime) {
+        nextWakeUpTime = earliestNextWakeUpTime;
+        sleepStartTime = subMinutes(nextWakeUpTime, requiredSleepMinutes);
     }
 }
 
-if (wakeUpLimits.earliest) {
-    const parts = wakeUpLimits.earliest.split(':').map(Number);
-    const hours = parts[0]!;
-    const minutes = parts[1]!;
-    const seconds = parts[2] ?? 0;
-    const earliestWakeUp = new Date(date);
+if (nextWakeupLatestTime) {
+    const latestNextWakeUpTime = dateFromTimeString({
+        date: addDays(date, 1),
+        timeString: nextWakeupLatestTime,
+    });
 
-    earliestWakeUp.setHours(hours, minutes, seconds, 0);
-
-    if (wakeUpTime < earliestWakeUp) {
-        wakeUpTime = earliestWakeUp;
-        tentativeSleepStart = addMinutes(subMinutes(wakeUpTime, requiredSleepMinutes), 24 * 60);
+    if (nextWakeUpTime > latestNextWakeUpTime) {
+        nextWakeUpTime = latestNextWakeUpTime;
+        sleepStartTime = subMinutes(nextWakeUpTime, requiredSleepMinutes);
     }
 }
 
-const sleepStartTime = tentativeSleepStart < times.dusk ? times.dusk : tentativeSleepStart;
 const windDownTime = subMinutes(sleepStartTime, windDownBeforeSleepMinutes);
 
 const hours = Math.floor(requiredSleepHours);
 const minutes = Math.round((requiredSleepHours - hours) * 60);
 
+console.log('Current wake-up time:', formatInTimeZone(wakeUpTime, timeZone, fmt));
 if (badSleepMinutes) console.log('Bad sleep minutes compensation:', badSleepMinutes);
 console.log(`Required sleep today: ${hours} hours ${minutes} minutes`);
-console.log('Recommended wake-up time:', formatInTimeZone(wakeUpTime, timeZone, fmt));
 console.log('Winding down time before sleep:', formatInTimeZone(windDownTime, timeZone, fmt));
 console.log('Recommended sleep start time:', formatInTimeZone(sleepStartTime, timeZone, fmt));
+console.log('Recommended wake-up time:', formatInTimeZone(nextWakeUpTime, timeZone, fmt));
 console.log('-----------------------------------');
 
 // eating
